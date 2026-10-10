@@ -22,7 +22,8 @@ Resources:
       ClientIdList:
         - "://amazonaws.com"
       ThumbprintList:
-        - "6938fd4d98bab03faadb97b34396831e3780aea1"
+        - "1c58a3a8518e87479502b5640175884b7a6b8b40" # Current Official GitHub OIDC Thumbprint
+        - "6938fd4d98bab03faadb97b34396831e3780aea1" # Secondary Backup Thumbprint
 
   # =========================================================================
   # 2. DEPLOYMENT EXECUTION ROLE (GitHub assumes this)
