@@ -33,7 +33,7 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
-          audience: "https://amazonaws.com"
+          audience: sts.amazonaws.com
 
       # =========================================================================
       # 3. PHASED CLOUDFORMATION DEPLOYMENTS
