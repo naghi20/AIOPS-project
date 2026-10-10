@@ -12,9 +12,6 @@ Parameters:
     Description: Your target repository workspace name.
 
 Resources:
-  # =========================================================================
-  # 1. GLOBAL IDENTITY PROVIDER LINK
-  # =========================================================================
   GitHubOidcProvider:
     Type: AWS::IAM::OIDCProvider
     Properties:
@@ -22,12 +19,9 @@ Resources:
       ClientIdList:
         - "sts.amazonaws.com"
       ThumbprintList:
-        - "1c58a3a8518e87479502b5640175884b7a6b8b40" # Current Official GitHub OIDC Thumbprint
-        - "6938fd4d98bab03faadb97b34396831e3780aea1" # Secondary Backup Thumbprint
+        - "1c58a3a8518e87479502b5640175884b7a6b8b40"
+        - "6938fd4d98bab03faadb97b34396831e3780aea1"
 
-  # =========================================================================
-  # 2. DEPLOYMENT EXECUTION ROLE (GitHub assumes this)
-  # =========================================================================
   GitHubDeploymentRole:
     Type: AWS::IAM::Role
     Properties:
@@ -43,7 +37,6 @@ Resources:
             Condition:
               StringEquals:
                 "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
-              StringLike:
                 "token.actions.githubusercontent.com:sub": !Sub "repo:${GitHubOrgOrUser}/${GitHubRepoName}:ref:refs/heads/main"
       ManagedPolicyArns:
         - "arn:aws:iam::aws:policy/AdministratorAccess"
