@@ -1,39 +1,73 @@
-name: AIOps CI/CD Pipeline
+name: AIOps Infrastructure CI/CD Pipeline
 
 on:
   push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+    branches:
+      - main
+    paths:
+      - 'infrastructure/**'  # Triggers only when your infrastructure templates change
+  workflow_dispatch:        # Allows manual execution from the GitHub Actions tab
 
 permissions:
-  id-token: write
-  contents: read
+  id-token: write           # Required for requesting the JWT token via OIDC
+  contents: read            # Required to check out your repository code
+
+env:
+  AWS_REGION: "us-east-1"   # Your target deployment region
 
 jobs:
-  validate-and-test:
+  deploy-infrastructure:
     runs-on: ubuntu-latest
     steps:
+      # =========================================================================
+      # 1. CHECK OUT REPOSITORY CODE
+      # =========================================================================
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      # =========================================================================
+      # 2. AUTHENTICATE TO AWS VIA OIDC (Passwordless Verification)
+      # =========================================================================
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          python-version: '3.11'
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+          audience: "https://amazonaws.com"
 
-      - name: Install Python Linters
-        run: |
-          python -m pip install --upgrade pip
-          pip install flake8
+      # =========================================================================
+      # 3. PHASED CLOUDFORMATION DEPLOYMENTS
+      # =========================================================================
+      
+      - name: Deploy Phase 1 - Base Infrastructure
+        uses: aws-actions/aws-cloudformation-github-deploy@v1
+        with:
+          name: "aiops-phase1-base"
+          template: "infrastructure/phase1-base.yaml"
+          no-fail-on-empty-changeset: "1"
+          # Passes the mandatory deployment parameters safely from secrets
+          parameter-overrides: >-
+            BudgetEmail=${{ secrets.BUDGET_EMAIL }}
 
-      - name: Lint Lambda Functions
-        run: |
-          # Check for syntax errors or undefined names
-          flake8 src/ --count --select=E9,F63,F7,F82 --show-source --statistics
+      - name: Deploy Phase 2 - Ingress & Ingestion
+        uses: aws-actions/aws-cloudformation-github-deploy@v1
+        with:
+          name: "aiops-phase2-ingress"
+          template: "infrastructure/phase2-ingress.yaml"
+          no-fail-on-empty-changeset: "1"
 
-      - name: Validate CloudFormation Templates
-        run: |
-          echo "Validating CloudFormation infrastructure deployment templates..."
-          # In real enterprise pipelines, replace with aws cloudformation validate-template or cfn-lint
-          # uses: aws-actions/configure-aws-credentials before running aws cli validation commands
+      - name: Deploy Phase 3 - OpenSearch Vector Store
+        uses: aws-actions/aws-cloudformation-github-deploy@v1
+        with:
+          name: "aiops-phase3-vector-store"
+          template: "infrastructure/phase3-vector-store.yaml"
+          no-fail-on-empty-changeset: "1"
+          capabilities: "CAPABILITY_NAMED_IAM"
+
+      - name: Deploy Phase 5 - Amazon Bedrock Orchestrator Agent
+        uses: aws-actions/aws-cloudformation-github-deploy@v1
+        with:
+          name: "aiops-phase5-agent"
+          template: "infrastructure/phase5-agent.yaml"
+          no-fail-on-empty-changeset: "1"
+          capabilities: "CAPABILITY_NAMED_IAM"
