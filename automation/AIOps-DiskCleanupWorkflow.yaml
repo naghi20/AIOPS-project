@@ -1,0 +1,28 @@
+description: "AIOps Safe Disk Cleanup Remediation Workflow"
+schemaVersion: "0.3"
+assumeRole: "{{ AutomationAssumeRole }}"
+parameters:
+  InstanceId:
+    type: "String"
+  AutomationAssumeRole:
+    type: "String"
+    default: ""
+mainSteps:
+  - name: VerifyInstanceState
+    action: "aws:assertAwsResourceProperty"
+    inputs:
+      Service: ec2
+      Api: DescribeInstances
+      InstanceIds: ["{{ InstanceId }}"]
+      PropertySelector: "$.Reservations.Instances.State.Name"
+      DesiredValues: ["running"]
+  - name: RunDiskCleanupScript
+    action: "aws:runCommand"
+    inputs:
+      DocumentName: "AWS-RunShellScript"
+      InstanceIds: ["{{ InstanceId }}"]
+      Parameters:
+        commands:
+          - |
+            sudo journalctl --vacuum-time=3d
+            sudo find /var/log -type f -name "*.gz" -delete

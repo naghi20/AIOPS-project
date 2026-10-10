@@ -1,0 +1,65 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Phase 5: Bedrock Agent Orchestrator Integration Core Setup.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: aiops
+  KnowledgeBaseId:
+    Type: String
+  ActionGroupLambdaArn:
+    Type: String
+
+Resources:
+  BedrockAgentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-bedrock-agent-role-${AWS::Region}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: bedrock.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: BedrockAgentCentralExecution
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ["bedrock:InvokeModel"]
+                Resource: !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-3-5-sonnet-*"
+              - Effect: Allow
+                Action: ["bedrock:Retrieve"]
+                Resource: !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/${KnowledgeBaseId}"
+              - Effect: Allow
+                Action: ["lambda:InvokeFunction"]
+                Resource: !Ref ActionGroupLambdaArn
+
+  AIOpsBedrockAgent:
+    Type: AWS::Bedrock::Agent
+    Properties:
+      AgentName: !Sub "${ProjectName}-orchestrator"
+      FoundationModel: anthropic.claude-3-5-sonnet-v2:0
+      AgentResourceRoleArn: !GetAtt BedrockAgentRole.Arn
+      Instruction: >
+        You are the automated AIOps Incident Orchestrator. When an alert arrives, your goal is to triage and resolve it using approved procedures.
+        Follow this strict sequence: Parse alert, Query Knowledge Base for runbooks, Invoke QueryTelemetry, ExecuteRemediation with safety prefixes (AIOps-), and log metrics.
+      ActionGroups:
+        - ActionGroupName: OperationalTools
+          ActionGroupExecutor:
+            Lambda: !Ref ActionGroupLambdaArn
+          FunctionSchema:
+            Functions:
+              - Name: QueryTelemetry
+                Description: Queries Grafana to verify if alert is active.
+                Parameters:
+                  query: { Type: String, Required: true }
+              - Name: ExecuteRemediation
+                Description: Executes a targeted AWS SSM Automation Runbook.
+                Parameters:
+                  runbook_name: { Type: String, Required: true }
+                  target_id: { Type: String, Required: true }
+      KnowledgeBases:
+        - KnowledgeBaseId: !Ref KnowledgeBaseId
+          KnowledgeBaseState: ENABLED

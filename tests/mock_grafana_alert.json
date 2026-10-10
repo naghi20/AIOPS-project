@@ -1,0 +1,15 @@
+{
+  "status": "firing",
+  "alerts": [
+    {
+      "labels": {
+        "alertname": "HighDiskSpaceUtilization",
+        "severity": "critical",
+        "InstanceId": "i-0abcd1234ef56789a"
+      },
+      "annotations": {
+        "summary": "Disk utilization exceeded 92% on target workloads."
+      }
+    }
+  ]
+}

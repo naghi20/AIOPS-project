@@ -1,0 +1,90 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Phase 2: Ingress & Routing - API Gateway HTTP API and Ingestion Lambda function.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: aiops
+    AllowedPattern: "[a-z0-9-]{3,20}"
+
+Resources:
+  IngestionLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-ingestion-role-${AWS::Region}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: IngestionLambdaQueueAndSecretAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ["secretsmanager:GetSecretValue"]
+                Resource: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${ProjectName}/webhook-token-*"
+              - Effect: Allow
+                Action: ["sqs:SendMessage"]
+                Resource: !Sub "arn:aws:sqs:${AWS::Region}:${AWS::AccountId}:${ProjectName}-alerts"
+
+  IngestionLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${ProjectName}-ingestion"
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt IngestionLambdaRole.Arn
+      Timeout: 15
+      MemorySize: 128
+      Environment:
+        Variables:
+          QUEUE_URL: !Sub "https://sqs.${AWS::Region}.amazonaws.com/${AWS::AccountId}/${ProjectName}-alerts"
+          SECRET_ARN: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${ProjectName}/webhook-token"
+          SERVICENOW_SECRET_ARN: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${ProjectName}/servicenow"
+          BEDROCK_AGENT_ID: "REPLACE_WITH_AGENT_ID"
+          BEDROCK_AGENT_ALIAS_ID: "REPLACE_WITH_ALIAS_ID"
+      Code:
+        S3Bucket: !Sub "${ProjectName}-runbooks-${AWS::AccountId}-${AWS::Region}"
+        S3Key: src/ingest_lambda.zip
+
+  HttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub "${ProjectName}-ingress-api"
+      ProtocolType: HTTP
+
+  HttpApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref HttpApi
+      StageName: v1
+      AutoDeploy: true
+
+  ApiIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt IngestionLambda.Arn
+      PayloadFormatVersion: "2.0"
+
+  ApiRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: "POST /alerts"
+      Target: !Sub "integrations/${ApiIntegration}"
+
+  LambdaApiPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt IngestionLambda.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*"

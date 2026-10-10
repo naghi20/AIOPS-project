@@ -1,0 +1,96 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Phase 3: Vector Storage & Knowledge Base Setup via OpenSearch Serverless.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: aiops
+
+Resources:
+  OpenSearchEncryptionPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
+    Properties:
+      Name: !Sub "${ProjectName}-enc-policy"
+      Type: encryption
+      Policy: !Sub >
+        {"Rules":[{"ResourceType":"collection","Resource":["collection/${ProjectName}-vectors"]}],"AWSOwnedKey":true}
+
+  OpenSearchNetworkPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
+    Properties:
+      Name: !Sub "${ProjectName}-net-policy"
+      Type: network
+      Policy: !Sub >
+        {"Rules":[{"ResourceType":"collection","Resource":["collection/${ProjectName}-vectors"]},{"ResourceType":"dashboard","Resource":["collection/${ProjectName}-vectors"]}],"AllowFromPublic":true}
+
+  OpenSearchDataAccessPolicy:
+    Type: AWS::OpenSearchServerless::AccessPolicy
+    Properties:
+      Name: !Sub "${ProjectName}-data-policy"
+      Type: data
+      Policy: !Sub >
+        [{"Rules":[{"ResourceType":"collection","Resource":["collection/${ProjectName}-vectors"],"Permission":["aoss:CreateCollectionItems","aoss:DeleteCollectionItems","aoss:UpdateCollectionItems","aoss:DescribeCollectionItems"]},{"ResourceType":"index","Resource":["index/${ProjectName}-vectors/*"],"Permission":["aoss:CreateIndex","aoss:DeleteIndex","aoss:UpdateIndex","aoss:DescribeIndex","aoss:ReadDocument","aoss:WriteDocument"]}],"Principal":["${BedrockKnowledgeBaseRole.Arn}"]}]
+
+  VectorCollection:
+    Type: AWS::OpenSearchServerless::Collection
+    DependsOn: [OpenSearchEncryptionPolicy, OpenSearchNetworkPolicy]
+    Properties:
+      Name: !Sub "${ProjectName}-vectors"
+      Type: VECTORSEARCH
+
+  BedrockKnowledgeBaseRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-bedrock-kb-role-${AWS::Region}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: bedrock.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: BedrockKbS3AndOpenSearchAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ["bedrock:InvokeModel"]
+                Resource: !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v2:0"
+              - Effect: Allow
+                Action: ["s3:GetObject", "s3:ListBucket"]
+                Resource:
+                  - !Sub "arn:aws:s3:::${ProjectName}-runbooks-${AWS::AccountId}-${AWS::Region}"
+                  - !Sub "arn:aws:s3:::${ProjectName}-runbooks-${AWS::AccountId}-${AWS::Region}/*"
+              - Effect: Allow
+                Action: ["aoss:APIAccessAll"]
+                Resource: !Sub "arn:aws:aoss:${AWS::Region}:${AWS::AccountId}:collection/${VectorCollection.Id}"
+
+  BedrockKnowledgeBase:
+    Type: AWS::Bedrock::KnowledgeBase
+    DependsOn: OpenSearchDataAccessPolicy
+    Properties:
+      Name: !Sub "${ProjectName}-knowledge-base"
+      RoleArn: !GetAtt BedrockKnowledgeBaseRole.Arn
+      KnowledgeBaseConfiguration:
+        Type: VECTOR
+        VectorKnowledgeBaseConfiguration:
+          EmbeddingModelArn: !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v2:0"
+      StorageConfiguration:
+        Type: OPENSEARCH_SERVERLESS
+        OpenSearchServerlessConfiguration:
+          CollectionArn: !GetAtt VectorCollection.Arn
+          VectorIndexName: "aiops-index"
+          FieldMapping:
+            VectorFieldName: "vector"
+            TextFieldName: "text"
+            MetadataFieldName: "metadata"
+
+  RunbookDataSource:
+    Type: AWS::Bedrock::DataSource
+    Properties:
+      KnowledgeBaseId: !Ref BedrockKnowledgeBase
+      Name: !Sub "${ProjectName}-s3-datasource"
+      DataSourceConfiguration:
+        Type: S3
+        S3Configuration:
+          BucketArn: !Sub "arn:aws:s3:::${ProjectName}-runbooks-${AWS::AccountId}-${AWS::Region}"
