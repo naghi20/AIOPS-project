@@ -37,7 +37,13 @@ jobs:
           no-fail-on-empty-changeset: "1"
           parameter-overrides: >-
             BudgetEmail=${{ secrets.BUDGET_EMAIL }}
-
+            
+      - name: Package and upload ingestion Lambda
+        run: |
+          cd src
+          zip -r ../ingest_lambda.zip . -x "*.pyc" "__pycache__/*"            cd ..
+          aws s3 cp ingest_lambda.zip s3://aiops-runbooks-140023407747-us-east-1/src/ingest_lambda.zip  
+          
       - name: Deploy Phase 2 - Ingress & Ingestion
         uses: aws-actions/aws-cloudformation-github-deploy@v1
         with:
@@ -52,7 +58,7 @@ jobs:
           name: "aiops-phase3-vector-store"
           template: "infrastructure/phase3-vector-store.yaml"
           no-fail-on-empty-changeset: "1"
-          capabilities: "CAPABILITY_NAMED_IAM"
+          capabilities: CAPABILITY_IAM,CAPABILITY_NAMED_IAM
 
       - name: Deploy Phase 5 - Amazon Bedrock Orchestrator Agent
         uses: aws-actions/aws-cloudformation-github-deploy@v1
