@@ -5,29 +5,23 @@ on:
     branches:
       - main
     paths:
-      - 'infrastructure/**'  # Triggers only when your infrastructure templates change
-  workflow_dispatch:        # Allows manual execution from the GitHub Actions tab
+      - 'infrastructure/**'
+  workflow_dispatch:
 
 permissions:
-  id-token: write           # Required for requesting the JWT token via OIDC
-  contents: read            # Required to check out your repository code
+  id-token: write
+  contents: read
 
 env:
-  AWS_REGION: "us-east-1"   # Your target deployment region
+  AWS_REGION: "us-east-1"
 
 jobs:
   deploy-infrastructure:
     runs-on: ubuntu-latest
     steps:
-      # =========================================================================
-      # 1. CHECK OUT REPOSITORY CODE
-      # =========================================================================
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # =========================================================================
-      # 2. AUTHENTICATE TO AWS VIA OIDC (Passwordless Verification)
-      # =========================================================================
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -35,17 +29,12 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           audience: sts.amazonaws.com
 
-      # =========================================================================
-      # 3. PHASED CLOUDFORMATION DEPLOYMENTS
-      # =========================================================================
-      
       - name: Deploy Phase 1 - Base Infrastructure
         uses: aws-actions/aws-cloudformation-github-deploy@v1
         with:
           name: "aiops-phase1-base"
           template: "infrastructure/phase1-base.yaml"
           no-fail-on-empty-changeset: "1"
-          # Passes the mandatory deployment parameters safely from secrets
           parameter-overrides: >-
             BudgetEmail=${{ secrets.BUDGET_EMAIL }}
 
