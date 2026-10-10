@@ -1,25 +1,35 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Phase 5: Bedrock Agent Orchestrator Integration Core Setup.
+Description: >
+  Phase 5: Bedrock Agent Orchestrator - Configures the central AI Agent, 
+  its prompt loop instructions, action group tools, and knowledge base associations.
 
 Parameters:
   ProjectName:
     Type: String
     Default: aiops
+    AllowedPattern: "[a-z0-9-]{3,20}"
+    Description: Lowercase prefix for resource names matching previous phases.
   KnowledgeBaseId:
     Type: String
+    Description: The ID of the Bedrock Knowledge Base generated in Phase 3.
   ActionGroupLambdaArn:
     Type: String
+    Description: The ARN of the Action-Group Tool Lambda function generated in Phase 4.
 
 Resources:
+  # =========================================================================
+  # 1. BEDROCK AGENT SERVICE ROLE (Central Permissions)
+  # =========================================================================
   BedrockAgentRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "${ProjectName}-bedrock-agent-role-${AWS::Region}"
+      RoleName: !Sub ${ProjectName}-bedrock-agent-role-${AWS::Region}
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
           - Effect: Allow
-            Principal: { Service: bedrock.amazonaws.com }
+            Principal:
+              Service: ://amazonaws.com
             Action: sts:AssumeRole
       Policies:
         - PolicyName: BedrockAgentCentralExecution
@@ -27,39 +37,75 @@ Resources:
             Version: "2012-10-17"
             Statement:
               - Effect: Allow
-                Action: ["bedrock:InvokeModel"]
-                Resource: !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-3-5-sonnet-*"
+                Action:
+                  - bedrock:InvokeModel
+                Resource: !Sub arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-3-5-sonnet-*
               - Effect: Allow
-                Action: ["bedrock:Retrieve"]
-                Resource: !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/${KnowledgeBaseId}"
+                Action:
+                  - bedrock:Retrieve
+                Resource: !Sub arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/${KnowledgeBaseId}
               - Effect: Allow
-                Action: ["lambda:InvokeFunction"]
+                Action:
+                  - lambda:InvokeFunction
                 Resource: !Ref ActionGroupLambdaArn
 
+  # =========================================================================
+  # 2. THE BEDROCK AGENT DEFINITION (The System Brain)
+  # =========================================================================
   AIOpsBedrockAgent:
     Type: AWS::Bedrock::Agent
     Properties:
-      AgentName: !Sub "${ProjectName}-orchestrator"
+      AgentName: !Sub ${ProjectName}-orchestrator
+      Description: Core automated incident triage and remediation agent loop.
       FoundationModel: anthropic.claude-3-5-sonnet-v2:0
       AgentResourceRoleArn: !GetAtt BedrockAgentRole.Arn
+      IdleSessionTTLInSeconds: 900
       Instruction: >
         You are the automated AIOps Incident Orchestrator. When an alert arrives, your goal is to triage and resolve it using approved procedures.
-        Follow this strict sequence: Parse alert, Query Knowledge Base for runbooks, Invoke QueryTelemetry, ExecuteRemediation with safety prefixes (AIOps-), and log metrics.
+        Follow this strict step execution sequence:
+        1. Parse the alert payload.
+        2. Query your Knowledge Base to find standard operating runbooks matching the alert fingerprint.
+        3. Invoke the QueryTelemetry tool to verify if the metric anomaly is still actively violating thresholds in Grafana.
+        4. Based on the runbook instructions, identify the remediation script name (must start with the prefix 'AIOps-').
+        5. Invoke the ExecuteRemediation tool passing the target identity parameters.
+        6. Log execution outcome states back into your final interaction summary text.
+        Always verify runbook parameters before pushing execution triggers.
+
       ActionGroups:
         - ActionGroupName: OperationalTools
+          Description: Interfaces allowing the agent to check Grafana and execute SSM remediations.
           ActionGroupExecutor:
             Lambda: !Ref ActionGroupLambdaArn
           FunctionSchema:
             Functions:
               - Name: QueryTelemetry
-                Description: Queries Grafana to verify if alert is active.
+                Description: Queries live telemetry trends from Prometheus/Grafana to verify if an alert is still active.
                 Parameters:
-                  query: { Type: String, Required: true }
+                  query:
+                    Type: string
+                    Description: PromQL query string targeting the anomalous metric.
+                    Required: true
               - Name: ExecuteRemediation
-                Description: Executes a targeted AWS SSM Automation Runbook.
+                Description: Evaluates safety boundaries and executes a targeted AWS SSM Automation Runbook.
                 Parameters:
-                  runbook_name: { Type: String, Required: true }
-                  target_id: { Type: String, Required: true }
+                  runbook_name:
+                    Type: string
+                    Description: The target automation script to invoke (Must start with AIOps-).
+                    Required: true
+                  target_id:
+                    Type: string
+                    Description: Target workload descriptor identifier (such as an EC2 InstanceId).
+                    Required: true
+
       KnowledgeBases:
         - KnowledgeBaseId: !Ref KnowledgeBaseId
+          Description: Main vector memory database containing standard operating procedures and diagnostic telemetry scripts.
           KnowledgeBaseState: ENABLED
+
+Outputs:
+  AgentId:
+    Description: Use this ID inside your alert routing architecture to forward ingestion streams.
+    Value: !Ref AIOpsBedrockAgent
+  AgentArn:
+    Description: The exact resource identification path of your provisioned AIOps Brain.
+    Value: !GetAtt AIOpsBedrockAgent.AgentArn

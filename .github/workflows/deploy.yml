@@ -18,9 +18,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
-          python-node-version: '3.11'
+          python-version: '3.11'
 
       - name: Install Python Linters
         run: |

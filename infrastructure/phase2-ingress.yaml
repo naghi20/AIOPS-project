@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Phase 2: Ingress & Routing - API Gateway HTTP API and Ingestion Lambda function.
+Description: Phase 2 Ingress & Routing - API Gateway HTTP API and Ingestion Lambda function.
 
 Parameters:
   ProjectName:

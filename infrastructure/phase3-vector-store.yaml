@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Phase 3: Vector Storage & Knowledge Base Setup via OpenSearch Serverless.
+Description: Phase 3 Vector Storage & Knowledge Base Setup via OpenSearch Serverless.
 
 Parameters:
   ProjectName:

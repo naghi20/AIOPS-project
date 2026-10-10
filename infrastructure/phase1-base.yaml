@@ -1,13 +1,12 @@
-AWSTemplateFormatVersion: "2010-09-09"
-Description: >
-  Phase 1: Core Foundation Base - Runbook bucket, alert queue with dead-letter queue,
-  secrets for ServiceNow and webhook token, and a monthly cost budget alert.
+AWSTemplateFormatVersion: '2010-09-09'
+Description: |
+  Phase 1: Core Foundation Base - Runbook bucket, alert queue with dead-letter queue, secrets for ServiceNow and webhook token, and a monthly cost budget alert.
 
 Parameters:
   ProjectName:
     Type: String
     Default: aiops
-    AllowedPattern: "[a-z0-9-]{3,20}"
+    AllowedPattern: '[a-z0-9-]{3,20}'
     Description: Lowercase prefix for resource names.
   BudgetEmail:
     Type: String
@@ -22,7 +21,7 @@ Resources:
   RunbookBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub "${ProjectName}-runbooks-${AWS::AccountId}-${AWS::Region}"
+      BucketName: !Sub ${ProjectName}-runbooks-${AWS::AccountId}-${AWS::Region}
       VersioningConfiguration:
         Status: Enabled
       BucketEncryption:
@@ -38,14 +37,14 @@ Resources:
   AlertDLQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "${ProjectName}-alerts-dlq"
+      QueueName: !Sub ${ProjectName}-alerts-dlq
       MessageRetentionPeriod: 1209600
       SqsManagedSseEnabled: true
 
   AlertQueue:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "${ProjectName}-alerts"
+      QueueName: !Sub ${ProjectName}-alerts
       VisibilityTimeout: 120
       SqsManagedSseEnabled: true
       RedrivePolicy:
@@ -55,14 +54,15 @@ Resources:
   ServiceNowSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
-      Name: !Sub "${ProjectName}/servicenow"
-      Description: ServiceNow integration credentials. Replace the CHANGE_ME values after deploy.
+      Name: !Sub ${ProjectName}/servicenow
+      Description: ServiceNow integration credentials. Replace the CHANGE_ME values
+        after deploy.
       SecretString: '{"instance_url":"https://CHANGE_ME.service-now.com","user":"svc_aiops_agent","password":"CHANGE_ME"}'
 
   WebhookTokenSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
-      Name: !Sub "${ProjectName}/webhook-token"
+      Name: !Sub ${ProjectName}/webhook-token
       Description: Shared secret Grafana sends in the x-aiops-token header.
       GenerateSecretString:
         PasswordLength: 40
@@ -72,7 +72,7 @@ Resources:
     Type: AWS::Budgets::Budget
     Properties:
       Budget:
-        BudgetName: !Sub "${ProjectName}-monthly-cost"
+        BudgetName: !Sub ${ProjectName}-monthly-cost
         BudgetType: COST
         TimeUnit: MONTHLY
         BudgetLimit:

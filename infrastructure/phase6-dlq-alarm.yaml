@@ -1,0 +1,56 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Phase 6: Proactive Monitoring - Provisions a CloudWatch Alarm tracking 
+  the SQS Dead-Letter Queue (DLQ) with an associated SNS Topic for email alerts.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: aiops
+    AllowedPattern: "[a-z0-9-]{3,20}"
+    Description: Lowercase prefix matching your active repository naming standard.
+  NotificationEmail:
+    Type: String
+    Description: The operational email address that will receive DLQ failure alert notifications.
+
+Resources:
+  # =========================================================================
+  # 1. NOTIFICATION ROUTER (Amazon SNS Topic)
+  # =========================================================================
+  DlqNotificationTopic:
+    Type: AWS::SNS::Topic
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TopicName: !Sub ${ProjectName}-dlq-alarms-topic
+      DisplayName: "AIOps DLQ Failure Dispatcher"
+      KmsMasterKeyId: "alias/aws/sns"
+      Subscription:
+        - Endpoint: !Ref NotificationEmail
+          Protocol: email
+
+  # =========================================================================
+  # 2. PROACTIVE FAULT MONITOR (Amazon CloudWatch Alarm)
+  # =========================================================================
+  AlertDlqBacklogAlarm:
+    Type: AWS::CloudWatch::Alarm
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      AlarmName: !Sub ${ProjectName}-sqs-dlq-backlog-alarm
+      AlarmDescription: "CRITICAL: Messages have dropped into the AIOps Ingestion DLQ. The AI Agent loop failed to process an event."
+      Namespace: "AWS/SQS"
+      MetricName: "ApproximateNumberOfMessagesVisible"
+      Dimensions:
+        - Name: QueueName
+          Value: !Sub ${ProjectName}-alerts-dlq
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions:
+        - !Ref DlqNotificationTopic
+      OKActions:
+        - !Ref DlqNotificationTopic
+      TreatMissingData: notBreaching
