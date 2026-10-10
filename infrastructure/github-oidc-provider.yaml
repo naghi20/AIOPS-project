@@ -1,0 +1,53 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Initial Phase: Configures OpenID Connect (OIDC) identity federation trust for GitHub Actions deployments."
+
+Parameters:
+  GitHubOrgOrUser:
+    Type: String
+    Default: naghi20
+    Description: Your exact GitHub account username.
+  GitHubRepoName:
+    Type: String
+    Default: AIOPS-project
+    Description: Your target repository workspace name.
+
+Resources:
+  # =========================================================================
+  # 1. GLOBAL IDENTITY PROVIDER LINK
+  # =========================================================================
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: "https://githubusercontent.com"
+      ClientIdList:
+        - "://amazonaws.com"
+      ThumbprintList:
+        - "6938fd4d98bab03faadb97b34396831e3780aea1"
+
+  # =========================================================================
+  # 2. DEPLOYMENT EXECUTION ROLE (GitHub assumes this)
+  # =========================================================================
+  GitHubDeploymentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "github-actions-${GitHubRepoName}-deploy-role"
+      Description: "Short-lived temporary token assumption execution role used by GitHub actions workflows."
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOidcProvider
+            Action: "sts:AssumeRoleWithWebIdentity"
+            Condition:
+              StringEquals:
+                "://githubusercontent.com:aud": "://amazonaws.com"
+              StringLike:
+                "://githubusercontent.com:sub": !Sub "repo:${GitHubOrgOrUser}/${GitHubRepoName}:ref:refs/heads/main"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/AdministratorAccess"
+
+Outputs:
+  DeploymentRoleArn:
+    Description: "Copy this value directly into your GitHub repository secrets under AWS_ROLE_TO_ASSUME."
+    Value: !GetAtt GitHubDeploymentRole.Arn
