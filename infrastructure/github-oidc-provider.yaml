@@ -18,9 +18,9 @@ Resources:
   GitHubOidcProvider:
     Type: AWS::IAM::OIDCProvider
     Properties:
-      Url: "https://githubusercontent.com"
+      Url: "https://token.actions.githubusercontent.com"
       ClientIdList:
-        - "://amazonaws.com"
+        - "sts.amazonaws.com"
       ThumbprintList:
         - "1c58a3a8518e87479502b5640175884b7a6b8b40" # Current Official GitHub OIDC Thumbprint
         - "6938fd4d98bab03faadb97b34396831e3780aea1" # Secondary Backup Thumbprint
@@ -38,13 +38,13 @@ Resources:
         Statement:
           - Effect: Allow
             Principal:
-              Federated: !Ref GitHubOidcProvider
+              Federated: !GetAtt GitHubOidcProvider.Arn
             Action: "sts:AssumeRoleWithWebIdentity"
             Condition:
               StringEquals:
-                "://githubusercontent.com:aud": "://amazonaws.com"
+                "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
               StringLike:
-                "://githubusercontent.com:sub": !Sub "repo:${GitHubOrgOrUser}/${GitHubRepoName}:ref:refs/heads/main"
+                "token.actions.githubusercontent.com:sub": !Sub "repo:${GitHubOrgOrUser}/${GitHubRepoName}:ref:refs/heads/main"
       ManagedPolicyArns:
         - "arn:aws:iam::aws:policy/AdministratorAccess"
 
