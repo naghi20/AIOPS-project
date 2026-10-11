@@ -55,11 +55,30 @@ jobs:
           no-fail-on-empty-changeset: "1"
           capabilities: CAPABILITY_IAM,CAPABILITY_NAMED_IAM
 
-      - name: Deploy Phase 3 - OpenSearch Vector Store
+            - name: Deploy Phase 3 - OpenSearch collection
         uses: aws-actions/aws-cloudformation-github-deploy@v1
         with:
-          name: "aiops-phase3-vector-store"
-          template: "infrastructure/phase3-vector-store.yaml"
+          name: aiops-phase3-vector-store
+          template: infrastructure/phase3-vector-store.yaml
+          no-fail-on-empty-changeset: "1"
+          capabilities: CAPABILITY_IAM,CAPABILITY_NAMED_IAM
+          parameter-overrides: >-
+            DeployRoleArn=${{ secrets.AWS_ROLE_TO_ASSUME }}
+
+      - name: Create vector index
+        run: |
+          pip install awscurl
+          ENDPOINT=$(aws opensearchserverless batch-get-collection --names aiops-vectors --query 'collectionDetails[0].collectionEndpoint' --output text)
+          sleep 60
+          awscurl --service aoss --region us-east-1 -X PUT "$ENDPOINT/aiops-index" -H "Content-Type: application/json" -d '{"settings":{"index.knn":true},"mappings":{"properties":{"vector":{"type":"knn_vector","dimension":1024,"method":{"name":"hnsw","engine":"faiss","space_type":"l2"}},"text":{"type":"text"},"metadata":{"type":"text"}}}}' || true
+          awscurl --service aoss --region us-east-1 -X GET "$ENDPOINT/aiops-index" | tee index.json
+          grep -q knn_vector index.json
+
+      - name: Deploy Phase 3b - Knowledge Base
+        uses: aws-actions/aws-cloudformation-github-deploy@v1
+        with:
+          name: aiops-phase3b-knowledge-base
+          template: infrastructure/phase3b-knowledge-base.yaml
           no-fail-on-empty-changeset: "1"
           capabilities: CAPABILITY_IAM,CAPABILITY_NAMED_IAM
 
