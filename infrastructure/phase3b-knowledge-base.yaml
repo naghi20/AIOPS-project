@@ -1,0 +1,43 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Phase 3b Bedrock Knowledge Base and S3 data source.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: aiops
+
+Resources:
+  BedrockKnowledgeBase:
+    Type: AWS::Bedrock::KnowledgeBase
+    Properties:
+      Name: !Sub "${ProjectName}-knowledge-base"
+      RoleArn: !ImportValue
+        Fn::Sub: "${ProjectName}-kb-role-arn"
+      KnowledgeBaseConfiguration:
+        Type: VECTOR
+        VectorKnowledgeBaseConfiguration:
+          EmbeddingModelArn: !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v2:0"
+      StorageConfiguration:
+        Type: OPENSEARCH_SERVERLESS
+        OpensearchServerlessConfiguration:
+          CollectionArn: !ImportValue
+            Fn::Sub: "${ProjectName}-collection-arn"
+          VectorIndexName: "aiops-index"
+          FieldMapping:
+            VectorField: "vector"
+            TextField: "text"
+            MetadataField: "metadata"
+
+  RunbookDataSource:
+    Type: AWS::Bedrock::DataSource
+    Properties:
+      KnowledgeBaseId: !Ref BedrockKnowledgeBase
+      Name: !Sub "${ProjectName}-s3-datasource"
+      DataSourceConfiguration:
+        Type: S3
+        S3Configuration:
+          BucketArn: !Sub "arn:aws:s3:::${ProjectName}-runbooks-${AWS::AccountId}-${AWS::Region}"
+
+Outputs:
+  KnowledgeBaseId:
+    Value: !Ref BedrockKnowledgeBase
