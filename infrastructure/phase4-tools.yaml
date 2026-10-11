@@ -1,0 +1,59 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Phase 4 Tool Lambda used by the Bedrock agent action group.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: aiops
+
+Resources:
+  ToolLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-tool-role-${AWS::Region}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ToolSsmAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:SendCommand
+                  - ssm:GetCommandInvocation
+                  - ssm:DescribeInstanceInformation
+                  - ssm:StartAutomationExecution
+                  - ssm:GetAutomationExecution
+                Resource: "*"
+
+  ToolLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${ProjectName}-tools"
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt ToolLambdaRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Code:
+        S3Bucket: !Sub "${ProjectName}-runbooks-${AWS::AccountId}-${AWS::Region}"
+        S3Key: src/tool_lambda.zip
+
+  BedrockInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ToolLambda
+      Action: lambda:InvokeFunction
+      Principal: bedrock.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+
+Outputs:
+  ToolLambdaArn:
+    Value: !GetAtt ToolLambda.Arn
