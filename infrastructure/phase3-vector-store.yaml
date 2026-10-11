@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Phase 3b Bedrock Knowledge Base and S3 data source.
+Description: Phase 3 Bedrock Knowledge Base and S3 data source.
 
 Parameters:
   ProjectName:
