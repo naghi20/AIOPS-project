@@ -55,7 +55,7 @@ jobs:
           no-fail-on-empty-changeset: "1"
           capabilities: CAPABILITY_IAM,CAPABILITY_NAMED_IAM
 
-            - name: Deploy Phase 3 - OpenSearch collection
+      - name: Deploy Phase 3 - OpenSearch collection
         uses: aws-actions/aws-cloudformation-github-deploy@v1
         with:
           name: aiops-phase3-vector-store
