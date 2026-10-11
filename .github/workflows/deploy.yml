@@ -82,10 +82,28 @@ jobs:
           no-fail-on-empty-changeset: "1"
           capabilities: CAPABILITY_IAM,CAPABILITY_NAMED_IAM
 
+      - name: Deploy Phase 4 - Tool Lambda
+        uses: aws-actions/aws-cloudformation-github-deploy@v1
+        with:
+          name: aiops-phase4-tools
+          template: infrastructure/phase4-tools.yaml
+          no-fail-on-empty-changeset: "1"
+          capabilities: CAPABILITY_IAM,CAPABILITY_NAMED_IAM
+
+      - name: Read stack outputs
+        id: stackvalues
+        run: |
+          KB_ID=$(aws cloudformation describe-stacks --stack-name aiops-phase3b-knowledge-base --query "Stacks[0].Outputs[?OutputKey=='KnowledgeBaseId'].OutputValue" --output text)
+          TOOL_ARN=$(aws cloudformation describe-stacks --stack-name aiops-phase4-tools --query "Stacks[0].Outputs[?OutputKey=='ToolLambdaArn'].OutputValue" --output text)
+          echo "kb_id=$KB_ID" >> "$GITHUB_OUTPUT"
+          echo "tool_arn=$TOOL_ARN" >> "$GITHUB_OUTPUT"
+
       - name: Deploy Phase 5 - Amazon Bedrock Orchestrator Agent
         uses: aws-actions/aws-cloudformation-github-deploy@v1
         with:
-          name: "aiops-phase5-agent"
-          template: "infrastructure/phase5-agent.yaml"
+          name: aiops-phase5-agent
+          template: infrastructure/phase5-agent.yaml
           no-fail-on-empty-changeset: "1"
-          capabilities: "CAPABILITY_NAMED_IAM"
+          capabilities: CAPABILITY_IAM,CAPABILITY_NAMED_IAM
+          parameter-overrides: >-
+            KnowledgeBaseId=${{ steps.stackvalues.outputs.kb_id }},ActionGroupLambdaArn=${{ steps.stackvalues.outputs.tool_arn }}
