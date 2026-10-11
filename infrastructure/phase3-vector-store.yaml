@@ -1,43 +1,78 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Phase 3 Bedrock Knowledge Base and S3 data source.
+Description: Phase 3 Vector Storage - OpenSearch Serverless collection, policies and Knowledge Base role.
 
 Parameters:
   ProjectName:
     Type: String
     Default: aiops
+  DeployRoleArn:
+    Type: String
 
 Resources:
-  BedrockKnowledgeBase:
-    Type: AWS::Bedrock::KnowledgeBase
+  OpenSearchEncryptionPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
     Properties:
-      Name: !Sub "${ProjectName}-knowledge-base"
-      RoleArn: !ImportValue
-        Fn::Sub: "${ProjectName}-kb-role-arn"
-      KnowledgeBaseConfiguration:
-        Type: VECTOR
-        VectorKnowledgeBaseConfiguration:
-          EmbeddingModelArn: !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v2:0"
-      StorageConfiguration:
-        Type: OPENSEARCH_SERVERLESS
-        OpensearchServerlessConfiguration:
-          CollectionArn: !ImportValue
-            Fn::Sub: "${ProjectName}-collection-arn"
-          VectorIndexName: "aiops-index"
-          FieldMapping:
-            VectorField: "vector"
-            TextField: "text"
-            MetadataField: "metadata"
+      Name: !Sub "${ProjectName}-enc-policy"
+      Type: encryption
+      Policy: !Sub >
+        {"Rules":[{"ResourceType":"collection","Resource":["collection/${ProjectName}-vectors"]}],"AWSOwnedKey":true}
 
-  RunbookDataSource:
-    Type: AWS::Bedrock::DataSource
+  OpenSearchNetworkPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
     Properties:
-      KnowledgeBaseId: !Ref BedrockKnowledgeBase
-      Name: !Sub "${ProjectName}-s3-datasource"
-      DataSourceConfiguration:
-        Type: S3
-        S3Configuration:
-          BucketArn: !Sub "arn:aws:s3:::${ProjectName}-runbooks-${AWS::AccountId}-${AWS::Region}"
+      Name: !Sub "${ProjectName}-net-policy"
+      Type: network
+      Policy: !Sub >
+        [{"Rules":[{"ResourceType":"collection","Resource":["collection/${ProjectName}-vectors"]},{"ResourceType":"dashboard","Resource":["collection/${ProjectName}-vectors"]}],"AllowFromPublic":true}]
+
+  OpenSearchDataAccessPolicy:
+    Type: AWS::OpenSearchServerless::AccessPolicy
+    Properties:
+      Name: !Sub "${ProjectName}-data-policy"
+      Type: data
+      Policy: !Sub >
+        [{"Rules":[{"ResourceType":"collection","Resource":["collection/${ProjectName}-vectors"],"Permission":["aoss:CreateCollectionItems","aoss:DeleteCollectionItems","aoss:UpdateCollectionItems","aoss:DescribeCollectionItems"]},{"ResourceType":"index","Resource":["index/${ProjectName}-vectors/*"],"Permission":["aoss:CreateIndex","aoss:DeleteIndex","aoss:UpdateIndex","aoss:DescribeIndex","aoss:ReadDocument","aoss:WriteDocument"]}],"Principal":["${BedrockKnowledgeBaseRole.Arn}","${DeployRoleArn}"]}]
+
+  VectorCollection:
+    Type: AWS::OpenSearchServerless::Collection
+    DependsOn: [OpenSearchEncryptionPolicy, OpenSearchNetworkPolicy]
+    Properties:
+      Name: !Sub "${ProjectName}-vectors"
+      Type: VECTORSEARCH
+
+  BedrockKnowledgeBaseRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-bedrock-kb-role-${AWS::Region}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: bedrock.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: BedrockKbS3AndOpenSearchAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ["bedrock:InvokeModel"]
+                Resource: !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v2:0"
+              - Effect: Allow
+                Action: ["s3:GetObject", "s3:ListBucket"]
+                Resource:
+                  - !Sub "arn:aws:s3:::${ProjectName}-runbooks-${AWS::AccountId}-${AWS::Region}"
+                  - !Sub "arn:aws:s3:::${ProjectName}-runbooks-${AWS::AccountId}-${AWS::Region}/*"
+              - Effect: Allow
+                Action: ["aoss:APIAccessAll"]
+                Resource: !Sub "arn:aws:aoss:${AWS::Region}:${AWS::AccountId}:collection/${VectorCollection.Id}"
 
 Outputs:
-  KnowledgeBaseId:
-    Value: !Ref BedrockKnowledgeBase
+  CollectionArn:
+    Value: !GetAtt VectorCollection.Arn
+    Export:
+      Name: !Sub "${ProjectName}-collection-arn"
+  KbRoleArn:
+    Value: !GetAtt BedrockKnowledgeBaseRole.Arn
+    Export:
+      Name: !Sub "${ProjectName}-kb-role-arn"
