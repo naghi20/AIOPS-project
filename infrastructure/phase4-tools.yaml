@@ -1,12 +1,90 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Phase 4 Tool Lambda used by the Bedrock agent action group.
+Description: Phase 4 Tools - tool Lambda (telemetry, remediation), the AIOps disk cleanup SSM Automation runbook, and its execution role.
 
 Parameters:
   ProjectName:
     Type: String
     Default: aiops
+  PrometheusUrl:
+    Type: String
+    Default: ""
+    Description: Base URL of a Prometheus-compatible query API (optional). Empty means telemetry checks report "unavailable".
 
 Resources:
+  AutomationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-ssm-automation-role-${AWS::Region}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ssm.amazonaws.com }
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+      Policies:
+        - PolicyName: DiskCleanupAutomation
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeInstances
+                  - ssm:DescribeInstanceInformation
+                  - ssm:GetCommandInvocation
+                  - ssm:ListCommandInvocations
+                  - ssm:ListCommands
+                Resource: "*"
+              - Effect: Allow
+                Action: ssm:SendCommand
+                Resource:
+                  - !Sub "arn:aws:ssm:${AWS::Region}::document/AWS-RunShellScript"
+                  - !Sub "arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/*"
+
+  DiskCleanupDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: AIOps-DiskCleanupWorkflow
+      DocumentType: Automation
+      DocumentFormat: YAML
+      UpdateMethod: NewVersion
+      Content:
+        schemaVersion: "0.3"
+        description: "AIOps safe disk cleanup remediation workflow"
+        assumeRole: "{{ AutomationAssumeRole }}"
+        parameters:
+          InstanceId:
+            type: String
+            allowedPattern: "^i-[0-9a-f]{8,17}$"
+          AutomationAssumeRole:
+            type: String
+            default: ""
+        mainSteps:
+          - name: VerifyInstanceState
+            action: "aws:assertAwsResourceProperty"
+            inputs:
+              Service: ec2
+              Api: DescribeInstances
+              InstanceIds:
+                - "{{ InstanceId }}"
+              PropertySelector: "$.Reservations[0].Instances[0].State.Name"
+              DesiredValues:
+                - running
+          - name: RunDiskCleanupScript
+            action: "aws:runCommand"
+            inputs:
+              DocumentName: AWS-RunShellScript
+              InstanceIds:
+                - "{{ InstanceId }}"
+              Parameters:
+                commands:
+                  - df -h /
+                  - journalctl --vacuum-time=3d
+                  - find /var/log -type f -name "*.gz" -mtime +7 -delete
+                  - df -h /
+
   ToolLambdaRole:
     Type: AWS::IAM::Role
     Properties:
@@ -25,13 +103,14 @@ Resources:
             Version: "2012-10-17"
             Statement:
               - Effect: Allow
-                Action:
-                  - ssm:SendCommand
-                  - ssm:GetCommandInvocation
-                  - ssm:DescribeInstanceInformation
-                  - ssm:StartAutomationExecution
-                  - ssm:GetAutomationExecution
-                Resource: "*"
+                Action: ssm:StartAutomationExecution
+                Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:automation-definition/AIOps-*:*"
+              - Effect: Allow
+                Action: ssm:GetAutomationExecution
+                Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:automation-execution/*"
+              - Effect: Allow
+                Action: iam:PassRole
+                Resource: !GetAtt AutomationRole.Arn
 
   ToolLambda:
     Type: AWS::Lambda::Function
@@ -40,20 +119,19 @@ Resources:
       Runtime: python3.11
       Handler: index.handler
       Role: !GetAtt ToolLambdaRole.Arn
-      Timeout: 30
+      Timeout: 60
       MemorySize: 256
+      Environment:
+        Variables:
+          AUTOMATION_ASSUME_ROLE: !GetAtt AutomationRole.Arn
+          PROMETHEUS_URL: !Ref PrometheusUrl
+          WAIT_SECONDS: "40"
       Code:
         S3Bucket: !Sub "${ProjectName}-runbooks-${AWS::AccountId}-${AWS::Region}"
         S3Key: src/tool_lambda.zip
 
-  BedrockInvokePermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      FunctionName: !Ref ToolLambda
-      Action: lambda:InvokeFunction
-      Principal: bedrock.amazonaws.com
-      SourceAccount: !Ref AWS::AccountId
-
 Outputs:
   ToolLambdaArn:
     Value: !GetAtt ToolLambda.Arn
+  AutomationRoleArn:
+    Value: !GetAtt AutomationRole.Arn

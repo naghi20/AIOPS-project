@@ -45,7 +45,8 @@ Resources:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: !Sub ${ProjectName}-alerts
-      VisibilityTimeout: 120
+      # Must be at least the processor Lambda timeout (240s in Phase 5).
+      VisibilityTimeout: 300
       SqsManagedSseEnabled: true
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt AlertDLQ.Arn

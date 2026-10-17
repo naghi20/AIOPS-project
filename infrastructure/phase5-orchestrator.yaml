@@ -1,0 +1,107 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Phase 5: Orchestrator - SQS-triggered Lambda that creates the ServiceNow incident,
+  retrieves runbooks from the Knowledge Base, lets Claude (Bedrock Converse API) pick
+  tools, enforces the policy gate, and updates or closes the ticket.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: aiops
+    AllowedPattern: "[a-z0-9-]{3,20}"
+  KnowledgeBaseId:
+    Type: String
+    Description: Knowledge Base ID from the Phase 3b stack output.
+  ToolLambdaArn:
+    Type: String
+    Description: Tool Lambda ARN from the Phase 4 stack output.
+  ModelId:
+    Type: String
+    Default: us.anthropic.claude-sonnet-4-5-20250929-v1:0
+    Description: Bedrock model or inference profile ID (copy the exact ID from the Bedrock console).
+
+Resources:
+  ProcessorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-processor-role-${AWS::Region}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ProcessorAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                Resource: !Sub "arn:aws:sqs:${AWS::Region}:${AWS::AccountId}:${ProjectName}-alerts"
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${ProjectName}/servicenow-*"
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                  - bedrock:GetInferenceProfile
+                Resource:
+                  - "arn:aws:bedrock:*::foundation-model/anthropic.*"
+                  - !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/*"
+              - Effect: Allow
+                Action: bedrock:Retrieve
+                Resource: !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/${KnowledgeBaseId}"
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !Ref ToolLambdaArn
+
+  ProcessorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${ProjectName}-processor"
+      RetentionInDays: 30
+
+  ProcessorLambda:
+    Type: AWS::Lambda::Function
+    DependsOn: ProcessorLogGroup
+    Properties:
+      FunctionName: !Sub "${ProjectName}-processor"
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt ProcessorRole.Arn
+      # Must stay below the alert queue VisibilityTimeout (300s in Phase 1).
+      Timeout: 240
+      MemorySize: 512
+      Environment:
+        Variables:
+          MODEL_ID: !Ref ModelId
+          KNOWLEDGE_BASE_ID: !Ref KnowledgeBaseId
+          TOOL_LAMBDA_ARN: !Ref ToolLambdaArn
+          SERVICENOW_SECRET_ID: !Sub "${ProjectName}/servicenow"
+          MAX_TURNS: "6"
+          REMEDIATION_POLICY: '{"AIOps-DiskCleanupWorkflow":"low"}'
+      Code:
+        S3Bucket: !Sub "${ProjectName}-runbooks-${AWS::AccountId}-${AWS::Region}"
+        S3Key: src/processor_lambda.zip
+
+  AlertQueueTrigger:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref ProcessorLambda
+      EventSourceArn: !Sub "arn:aws:sqs:${AWS::Region}:${AWS::AccountId}:${ProjectName}-alerts"
+      BatchSize: 1
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
+      ScalingConfig:
+        MaximumConcurrency: 2
+
+Outputs:
+  ProcessorFunctionName:
+    Value: !Ref ProcessorLambda
